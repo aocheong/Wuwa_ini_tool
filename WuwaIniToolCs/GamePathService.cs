@@ -7,6 +7,20 @@ namespace WuwaIniToolCs;
 
 internal static class GamePathService
 {
+    public static string? FindWin64FolderWithFallbackDepth()
+    {
+        return AutoFindWin64Folder()
+            ?? ScanCustomWin64Folder(maxDepth: 3)
+            ?? ScanCustomWin64Folder(maxDepth: 5);
+    }
+
+    public static string? FindCustomConfigFolderWithFallbackDepth()
+    {
+        return AutoFindCustomConfigFolder()
+            ?? ScanCustomConfigFolder(maxDepth: 3)
+            ?? ScanCustomConfigFolder(maxDepth: 5);
+    }
+
     public static List<string> Win64CandidateFolders()
     {
         var candidates = new List<string>
@@ -228,7 +242,7 @@ internal static class GamePathService
             }
         }
 
-        var foundWin64 = AutoFindWin64Folder() ?? ScanCustomWin64Folder();
+        var foundWin64 = FindWin64FolderWithFallbackDepth();
         if (!string.IsNullOrWhiteSpace(foundWin64))
         {
             var fromFound = AppPaths.Win64ToGameExe(foundWin64);

@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "dgSpecHash": "S7DO68Q5YDE=",
+  "success": true,
+  "projectFilePath": "C:\\Users\\a\\Documents\\wuwa_ini_tool_cs_ex\\WuwaIniToolCs\\WuwaIniToolCs.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\a\\.nuget\\packages\\microsoft.net.illink.tasks\\8.0.26\\microsoft.net.illink.tasks.8.0.26.nupkg.sha512",
+    "C:\\Users\\a\\.nuget\\packages\\sixlabors.imagesharp\\3.1.12\\sixlabors.imagesharp.3.1.12.nupkg.sha512"
+  ],
+  "logs": []
+}

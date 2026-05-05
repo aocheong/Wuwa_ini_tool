@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
@@ -59,12 +60,28 @@ internal static class ElevationService
             File.Delete(probe);
             return false;
         }
-        catch (UnauthorizedAccessException)
+        catch (UnauthorizedAccessException ex)
         {
+            AppLogger.LogDetail("tool_is_protected_path", new Dictionary<string, string?>
+            {
+                ["target_path"] = targetPath,
+                ["reason"] = "probe_unauthorized",
+                ["exception_type"] = ex.GetType().Name,
+                ["exception"] = ex.ToString(),
+                ["result"] = "true"
+            });
             return true;
         }
-        catch
+        catch (Exception ex)
         {
+            AppLogger.LogDetail("tool_is_protected_path", new Dictionary<string, string?>
+            {
+                ["target_path"] = targetPath,
+                ["reason"] = "probe_other_exception",
+                ["exception_type"] = ex.GetType().Name,
+                ["exception"] = ex.ToString(),
+                ["result"] = "false"
+            });
             return false;
         }
     }
@@ -76,6 +93,11 @@ internal static class ElevationService
             var exe = Environment.ProcessPath;
             if (string.IsNullOrWhiteSpace(exe))
             {
+                AppLogger.LogDetail("tool_relaunch_admin", new Dictionary<string, string?>
+                {
+                    ["result"] = "false",
+                    ["reason"] = "empty_process_path"
+                });
                 return false;
             }
 
@@ -90,19 +112,36 @@ internal static class ElevationService
             Process.Start(psi);
             return true;
         }
-        catch (Win32Exception)
+        catch (Win32Exception ex)
         {
+            AppLogger.LogDetail("tool_relaunch_admin", new Dictionary<string, string?>
+            {
+                ["result"] = "false",
+                ["reason"] = "win32_exception",
+                ["native_error_code"] = ex.NativeErrorCode.ToString(),
+                ["message"] = ex.Message,
+                ["exception"] = ex.ToString()
+            });
             return false;
         }
-        catch
+        catch (Exception ex)
         {
+            AppLogger.LogDetail("tool_relaunch_admin", new Dictionary<string, string?>
+            {
+                ["result"] = "false",
+                ["reason"] = "exception",
+                ["exception_type"] = ex.GetType().Name,
+                ["exception"] = ex.ToString()
+            });
             return false;
         }
     }
 
     public static bool EnsureAdminIfNeeded(bool needed, Func<bool> relaunchCallback)
     {
-        if (!OperatingSystem.IsWindows() || !needed || IsAdmin())
+        var isWindows = OperatingSystem.IsWindows();
+        var isAdmin = IsAdmin();
+        if (!isWindows || !needed || isAdmin)
         {
             return false;
         }
@@ -113,6 +152,14 @@ internal static class ElevationService
             return true;
         }
 
+        AppLogger.LogDetail("tool_ensure_admin", new Dictionary<string, string?>
+        {
+            ["needed"] = needed.ToString(),
+            ["is_windows"] = isWindows.ToString(),
+            ["is_admin"] = isAdmin.ToString(),
+            ["action"] = "request_relaunch_failed"
+        });
+        
         PopupService.ShowError("오류", "관리자 권한 실행 요청에 실패했습니다.");
         return true;
     }

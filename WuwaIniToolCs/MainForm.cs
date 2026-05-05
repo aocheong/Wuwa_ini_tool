@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using SixLabors.ImageSharp.Formats.Png;
 using SixLabors.ImageSharp.PixelFormats;
@@ -39,6 +40,7 @@ public sealed class MainForm : Form
     private bool _isHiddenToTray;
     private Icon _appIcon = SystemIcons.Application;
     private bool _ownsAppIcon;
+    private bool _isPathSearchInProgress;
 
     public MainForm()
     {
@@ -79,6 +81,18 @@ public sealed class MainForm : Form
 
         _selectedPresetButton = button;
         ApplyPresetSelectedStyle(button, true);
+    }
+
+    private void ClearSelectedPresetButton()
+    {
+        if (_selectedPresetButton is null || _selectedPresetButton.IsDisposed)
+        {
+            _selectedPresetButton = null;
+            return;
+        }
+
+        ApplyPresetSelectedStyle(_selectedPresetButton, false);
+        _selectedPresetButton = null;
     }
 
     private static void ApplyPresetSelectedStyle(Button button, bool isSelected)
@@ -155,7 +169,7 @@ public sealed class MainForm : Form
         customPathButton.Dock = DockStyle.Fill;
         customPathButton.Font = new Font("맑은 고딕", 10, FontStyle.Bold);
         customPathButton.Margin = new Padding(0, 14, 12, 14);
-        customPathButton.Click += (_, _) => UseCustomConfigPath();
+        customPathButton.Click += async (_, _) => await UseCustomConfigPathAsync();
 
         topBar.Controls.Add(customPathButton, 0, 0);
         topBar.Controls.Add(top, 1, 0);
@@ -210,7 +224,7 @@ public sealed class MainForm : Form
 
         var autoButton = BuildUiButton("자동 찾기");
         autoButton.Margin = new Padding(0, 0, 6, 0);
-        autoButton.Click += (_, _) => AutoFindWin64();
+        autoButton.Click += async (_, _) => await AutoFindWin64Async();
 
         var chooseButton = BuildUiButton("폴더 선택");
         chooseButton.Margin = new Padding(6, 0, 6, 0);
@@ -676,9 +690,11 @@ public sealed class MainForm : Form
         return button;
     }
 
-    private void AutoFindWin64()
+    private async Task AutoFindWin64Async()
     {
-        var found = GamePathService.AutoFindWin64Folder() ?? GamePathService.ScanCustomWin64Folder();
+        var found = await RunPathSearchAsync(
+            "Win64 경로를 탐색 중입니다. (1차: 빠른 탐색, 2차: 정밀 탐색)",
+            GamePathService.FindWin64FolderWithFallbackDepth);
         if (string.IsNullOrWhiteSpace(found))
         {
             PopupService.ShowWarning("안내", "자동으로 Win64 폴더를 찾지 못했습니다.\n폴더 선택으로 직접 지정해 주세요.", this);
@@ -703,14 +719,16 @@ public sealed class MainForm : Form
         SetWin64AndCache(dialog.SelectedPath);
     }
 
-    private void UseCustomConfigPath()
+    private async Task UseCustomConfigPathAsync()
     {
         PopupService.ShowWarning(
             "안내",
             "해당 경로는 구글플레이, 모드 유저를 위한 경로입니다.\n우회실행이 필요한 일부 명령어가 동작하지않습니다.",
             this);
 
-        var found = GamePathService.AutoFindCustomConfigFolder() ?? GamePathService.ScanCustomConfigFolder();
+        var found = await RunPathSearchAsync(
+            "커스텀 경로를 탐색 중입니다. (1차: 빠른 탐색, 2차: 정밀 탐색)",
+            GamePathService.FindCustomConfigFolderWithFallbackDepth);
         if (string.IsNullOrWhiteSpace(found))
         {
             PopupService.ShowWarning("안내", "자동으로 WindowsNoEditor 경로를 찾지 못했습니다.\n폴더 선택으로 직접 지정해 주세요.", this);
@@ -719,6 +737,34 @@ public sealed class MainForm : Form
 
         SetWin64AndCache(found);
         PopupService.ShowInfo("완료", $"커스텀 경로를 찾았습니다.\n\n{found}", this);
+    }
+
+    private async Task<string?> RunPathSearchAsync(string searchingStatusText, Func<string?> searchFunc)
+    {
+        if (_isPathSearchInProgress)
+        {
+            PopupService.ShowWarning("안내", "이미 경로 탐색이 진행 중입니다.\n잠시만 기다려 주세요.", this);
+            return null;
+        }
+
+        _isPathSearchInProgress = true;
+        var previousStatus = _statusLabel.Text;
+        var previousCursor = Cursor;
+        Cursor = Cursors.WaitCursor;
+        UseWaitCursor = true;
+        _statusLabel.Text = searchingStatusText;
+
+        try
+        {
+            return await Task.Run(searchFunc);
+        }
+        finally
+        {
+            UseWaitCursor = false;
+            Cursor = previousCursor;
+            _statusLabel.Text = previousStatus;
+            _isPathSearchInProgress = false;
+        }
     }
 
     private void OpenSelectedFolder()
@@ -804,6 +850,21 @@ public sealed class MainForm : Form
         catch (UnauthorizedAccessException ex)
         {
             var targetIni = AppPaths.Win64ToEngineIni(_win64PathTextBox.Text.Trim());
+
+            if (!ElevationService.IsAdmin())
+            {
+                var gameExe = GamePathService.FindGameExe(_win64PathTextBox.Text.Trim());
+                if (!string.IsNullOrWhiteSpace(gameExe) && File.Exists(targetIni))
+                {
+                    if (ElevationService.EnsureAdminIfNeeded(
+                            true,
+                            () => ElevationService.RelaunchAsAdmin("--elevated-launch", QuoteArg(targetIni), QuoteArg(gameExe))))
+                    {
+                        return;
+                    }
+                }
+            }
+
             AppLogger.LogDetail("game_launch_ini_permission_error", new Dictionary<string, string?>
             {
                 ["target_ini"] = targetIni,
@@ -830,6 +891,7 @@ public sealed class MainForm : Form
     private void ApplyPreset(string presetName, string presetFolder, Button clickedButton)
     {
         var sourceIni = Path.Combine(AppPaths.PresetsDir, presetFolder.Replace('/', Path.DirectorySeparatorChar), "engine.ini");
+        var groupKey = presetFolder[..presetFolder.LastIndexOf('/')];
         var presetKey = presetFolder[(presetFolder.LastIndexOf('/') + 1)..];
 
         if (!File.Exists(sourceIni))
@@ -846,7 +908,7 @@ public sealed class MainForm : Form
         }
 
         var confirmMessage = $"선택한 사양: [{presetName}]\n\n아래 경로에 실제로 적용할까요?\n{prepared.Value.TargetIni}";
-        if (AppConstants.PresetRecommendedSpecs.TryGetValue(presetKey, out var spec))
+        if (AppConstants.TryGetPresetRecommendedSpec(groupKey, presetKey, out var spec))
         {
             confirmMessage += $"\n\n【권장 사양】\n{spec}\n\n※ 권장 사양은 참고용입니다.";
         }
@@ -858,15 +920,15 @@ public sealed class MainForm : Form
 
         SetSelectedPresetButton(clickedButton);
 
-        if (ElevationService.EnsureAdminIfNeeded(
-                ElevationService.IsProtectedPath(prepared.Value.TargetIni),
-                () => ElevationService.RelaunchAsAdmin("--elevated-copy", QuoteArg(sourceIni), QuoteArg(prepared.Value.TargetIni), QuoteArg(presetName))))
-        {
-            return;
-        }
-
         try
         {
+            if (ElevationService.EnsureAdminIfNeeded(
+                    ElevationService.IsProtectedPath(prepared.Value.TargetIni),
+                    () => ElevationService.RelaunchAsAdmin("--elevated-copy", QuoteArg(sourceIni), QuoteArg(prepared.Value.TargetIni), QuoteArg(presetName))))
+            {
+                return;
+            }
+
             AppPaths.EnsureEngineIni(prepared.Value.TargetIni);
             var backupPath = EngineIniService.CreateBackup(prepared.Value.TargetIni, presetName);
 
@@ -949,6 +1011,10 @@ public sealed class MainForm : Form
                 ["exception"] = ex.ToString()
             });
             PopupService.ShowError("오류", $"적용 중 문제가 발생했습니다.\n\n{ex.Message}", this);
+        }
+        finally
+        {
+            ClearSelectedPresetButton();
         }
     }
 
@@ -1052,7 +1118,7 @@ public sealed class MainForm : Form
         var win64 = _win64PathTextBox.Text.Trim();
         if (string.IsNullOrWhiteSpace(win64) && autoDetect)
         {
-            var found = GamePathService.AutoFindWin64Folder() ?? GamePathService.ScanCustomWin64Folder();
+            var found = GamePathService.FindWin64FolderWithFallbackDepth();
             if (!string.IsNullOrWhiteSpace(found))
             {
                 SetWin64AndCache(found);

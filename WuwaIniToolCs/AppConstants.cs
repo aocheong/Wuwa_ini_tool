@@ -21,15 +21,29 @@ internal static class AppConstants
         "-USEALLAVAILABLECORES"
     };
 
-    public static readonly Dictionary<string, string> PresetRecommendedSpecs = new()
+    public static readonly Dictionary<string, string> PresetRecommendedSpecsOff = new()
     {
-        ["ultra"] = "CPU: 7800X3D / GPU: RTX 5080 동급 이상 권장",
-        ["high"] = "CPU: 9700X / GPU: RTX 5070 또는 RX 9070 동급 이상 권장",
+        ["ultra"] = "CPU: 7800X3D / GPU: RTX 5070 Ti 동급 이상 권장",
+        ["high"] = "CPU: 9700X / GPU: RTX 4070 또는 RX 9060 XT 동급 이상 권장",
         ["mid_high"] = "CPU: 9600X / GPU: RTX 5060 또는 RX 9060 동급 이상 권장",
         ["mid_low"] = "CPU: 7500F / GPU: RTX 3060 또는 RX 7600 동급 이상 권장",
         ["low"] = "CPU: 5600 / GPU: GTX 1660 또는 RX 6500 XT 동급 이상 권장",
         ["very_low"] = "GPU: GTX 1060 3GB 이하급 그래픽 권장"
     };
+
+    public static readonly Dictionary<string, string> PresetRecommendedSpecsOn = new()
+    {
+        ["ultra"] = "CPU: 7800X3D / GPU: RTX 5080 동급 이상 권장",
+        ["high"] = "CPU: 9700X / GPU: RTX 5070 또는 RX 9070 동급 이상 권장",
+        ["mid_high"] = "CPU: 9600X / GPU: RTX 5060 Ti 또는 RX 9060 XT 동급 이상 권장",
+        ["mid_low"] = "CPU: 7500F / GPU: RTX 3060 Ti 또는 RX 7700 XT 동급 이상 권장"
+    };
+
+    public static bool TryGetPresetRecommendedSpec(string groupKey, string presetKey, out string spec)
+    {
+        var table = groupKey == "rt_on" ? PresetRecommendedSpecsOn : PresetRecommendedSpecsOff;
+        return table.TryGetValue(presetKey, out spec!);
+    }
 
     public static readonly string[] PresetKeysOff =
     {
